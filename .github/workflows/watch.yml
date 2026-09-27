@@ -1,0 +1,63 @@
+name: watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"      # GitHub не обещает точности: на деле раз в 5–15 минут
+  workflow_dispatch:
+
+permissions:
+  actions: write               # только чтобы не дать GitHub выключить расписание через 60 дней
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Счётчик неудач переживает запуски через кэш: восстанавливаем самый свежий.
+      - uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Проверка сайта
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+        run: |
+          mkdir -p state
+          n=$(cat state/fails 2>/dev/null || echo 0)
+          send() {
+            curl -fsS -m 15 --retry 3 -o /dev/null -d chat_id="$TG_CHAT" \
+              --data-urlencode text="$1" "https://api.telegram.org/bot$TG_TOKEN/sendMessage"
+          }
+          if curl -fsS -m 30 --retry 2 --retry-delay 20 --retry-all-errors \
+               https://otpustite.com/api/health | grep -q '"ok":true'; then
+            [ "$n" -ge 2 ] && send "Отпустите снова открывается снаружи (проверка с GitHub)."
+            n=0
+          else
+            n=$((n + 1))
+            if [ "$n" -eq 2 ] || [ $((n % 12)) -eq 0 ]; then
+              send "Отпустите не открывается снаружи (проверка с GitHub, неудач подряд: $n). Если сторож на сервере молчит — скорее всего, лёг сам сервер или его адрес недоступен."
+            fi
+          fi
+          echo "$n" > state/fails
+          echo "неудач подряд: $n"
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: state
+          key: state-${{ github.run_id }}
+
+      # Публичный репозиторий без коммитов 60 дней теряет расписание. Раз в неделю
+      # включаем свой же workflow заново — это сбрасывает отсчёт.
+      - name: Не дать расписанию уснуть
+        if: github.event.schedule && github.run_number % 2016 == 0 || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/watch.yml/enable"
