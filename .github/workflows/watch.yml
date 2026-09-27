@@ -57,7 +57,11 @@ jobs:
       # Публичный репозиторий без коммитов 60 дней теряет расписание. Раз в неделю
       # включаем свой же workflow заново — это сбрасывает отсчёт.
       - name: Не дать расписанию уснуть
-        if: github.event.schedule && github.run_number % 2016 == 0 || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/watch.yml/enable"
+          RUN: ${{ github.run_number }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || [ $((RUN % 2016)) -eq 0 ]; then
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/watch.yml/enable"
+          fi
