@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/5 * * * *"      # GitHub не обещает точности: на деле раз в 5–15 минут
   workflow_dispatch:
+    inputs:
+      ping:
+        description: Прислать пробное сообщение в Telegram
+        type: boolean
+        default: false
 
 permissions:
   actions: write               # только чтобы не дать GitHub выключить расписание через 60 дней
@@ -44,6 +49,9 @@ jobs:
             if [ "$n" -eq 2 ] || [ $((n % 12)) -eq 0 ]; then
               send "Отпустите не открывается снаружи (проверка с GitHub, неудач подряд: $n). Если сторож на сервере молчит — скорее всего, лёг сам сервер или его адрес недоступен."
             fi
+          fi
+          if [ "${{ inputs.ping }}" = "true" ]; then
+            send "Внешний сторож «Отпустите» на связи: проверяю сайт с GitHub раз в 5–15 минут." || { echo "Telegram не принял сообщение"; exit 1; }
           fi
           echo "$n" > state/fails
           echo "неудач подряд: $n"
